@@ -1,34 +1,15 @@
 /*
- * Copyright (c) 2013, Majenko Technologies
- * All rights reserved.
- *
- * Additions (c) 2014, Christophe Dupriez, DESTIN-Informatique.com
- * 
- * Redistribution and use in source and binary forms, with or without modification,
- * are permitted provided that the following conditions are met:
- * 
- * * Redistributions of source code must retain the above copyright notice, this
- *   list of conditions and the following disclaimer.
- * 
- * * Redistributions in binary form must reproduce the above copyright notice, this
- *   list of conditions and the following disclaimer in the documentation and/or
- *   other materials provided with the distribution.
- * 
- * * Neither the name of Majenko Technologies nor the names of its
- *   contributors may be used to endorse or promote products derived from
- *   this software without specific prior written permission.
- * 
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
- * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
- * WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
- * DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR
- * ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
- * (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
- * LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON
- * ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
- * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
- * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- */
+
+All code is copyright 2011 Majenko Technologies. 
+The code is provided freely with no warranty either implicitly or explicity implied. 
+You may freely use the code for whatever you wish, but Majenko Technologies will not 
+be liable for any damage of any form howsoever caused by the use or misuse of this code.
+
+Separation of date/time Class (RTCCValue) from RTC management object (RTCCClass) by Christophe Dupriez, DESTIN-Informatique.com 2014
+
+PIC32 version...
+
+*/
 
 #include <WProgram.h>
 #include <sys/attribs.h>
@@ -37,11 +18,15 @@
 
 RTCCClass RTCC; // Object to access the RTC of the MCU...
 
+/*
+  Interrupt routine called if Alarm/Chime/RTC interrupt is enabled.
+  Calls an user configured procedure.
+*/
 extern "C"
 {
     void (*_RTCCInterrupt)();
 
-    void __ISR(_RTCC_VECTOR, _RTCC_IPL_ISR) __RTCCInterrupt(void) 
+    void __ISR(_RTCC_VECTOR, ipl3/*_RTCC_IPL_ISR does not work*/) __RTCCInterrupt(void) 
     {
         if(_RTCCInterrupt)
         {
@@ -51,6 +36,9 @@ extern "C"
     }
 }
 
+/*
+ Configuration registries unlock/lock sequence...
+ */
 #define UNLOCK SYSKEY = 0x0; SYSKEY = 0xAA996655; SYSKEY = 0x556699AA;
 #define LOCK SYSKEY = 0x0;
 
@@ -68,21 +56,25 @@ and RTCC write is enabled i.e. RTCWREN (RTCCON<3>) =1;*/
     RTCCONbits.ON = 1;
     OSCCONSET = 0x00400002;
     LOCK
+	_validity = RTCC_VAL_NOT; // 0: very unsure!
 }
 
 
 /*
  * Wait at least 32msec... if a crystal is available!
- * FOREVER IF NO CRYSTAL WORKING...
+ * FOREVER IF NO WORKING CRYSTAL?
  */
 void RTCCClass::timeSync()
 {
-/* PROBABLY NOT A GOOD IDEA!
+/* THIS IS NOT A GOOD IDEA:
     while(RTCCONbits.RTCSYNC==0); // Wait for a transition and 32ms later
 */
     while(RTCCONbits.RTCSYNC==1) { /*yield*/ };
 }
 
+/*
+ Enable/Disable an output pin synchronised with RTC
+ */
 void RTCCClass::outputEnable()
 {
     timeSync();
@@ -109,28 +101,39 @@ void RTCCClass::outputDisable()
     LOCK
 } 
 
+/*
+ get Current date/time.
+ RTCCValue class represents a date/time independently from the RTC itself.
+ */
 RTCCValue RTCCClass::value()
 {
     timeSync();
 	uint32_t our_date = RTCDATE;
 	uint32_t our_time = RTCTIME;
-	while (1) {
+	while (1) { // Ensures there is no date rollover while reading the time
 		uint32_t new_date = RTCDATE;
 		uint32_t new_time = RTCTIME;
 		if (new_date == our_date && new_time == our_time) break;
 		our_date = new_date;
 		our_time = new_time;
 	}
-	return RTCCValue(our_date,our_time);
+	return RTCCValue(our_date,our_time, _validity);
 }
 
-void RTCCClass::set(RTCCValue val)
+/*
+ Set date/time and specify its validity (0: very bad, 5: perfect=NTP)
+ */
+void RTCCClass::set(RTCCValue setting)
 {
     timeSync();
-	RTCDATE = val.date();
-	RTCTIME = val.time();
+	RTCDATE = setting.date();
+	RTCTIME = setting.time();
+	_validity = setting.getValidity();
 }
 
+/*
+ Alarms management...
+ */
 void RTCCClass::alarmSync()
 {
     while(RTCALRMbits.ALRMSYNC==1) { /*yield*/ };
@@ -148,6 +151,31 @@ void RTCCClass::alarmDisable()
     RTCALRMbits.ALRMEN = 0;
 }
 
+/*
+ Chime is an alarm repeating at configured interval (see AL_xxx definitions)
+ 
+ Usage example:
+    // Set current time with an RTCCValue "rv"
+ 	RTCC.set(rv);
+	
+	// Make an Alarm basis synched to Hours
+	rv.seconds(0);
+	rv.minutes(0);
+	RTCC.alarmSet(rv);
+
+	// Setup a Chime every minute
+    RTCC.alarmMask(CHIME_PERIOD);
+	RTCC.chimeEnable();
+    RTCC.attachInterrupt(&JustWakeUp); // JustWakeUp is a void function() to handle RTC interrupts
+	RTCC.alarmEnable();
+
+	//Example of JustWakeUp:
+	void JustWakeUp(void)
+	{
+		// Remember when this occurs!
+		lastChime = RTCC.value();
+	}
+ */
 void RTCCClass::chimeEnable()
 {
     alarmSync();
@@ -178,22 +206,64 @@ void RTCCClass::alarmSet(RTCCValue val) {
 	ALRMTIME = val.time();
 }
 
+/*
+ Alarm value is necessary for chimes also as it defined the basis of the repeating chime
+ */
 RTCCValue RTCCClass::alarmValue() {
 	alarmSync();
-	return RTCCValue(ALRMDATE,ALRMTIME);
+	return RTCCValue(ALRMDATE,ALRMTIME,0);
 }
 
 void RTCCClass::attachInterrupt(void (*i)())
 {
     _RTCCInterrupt = i;
 }
-
-/* Handling a date/time : current RTC, Alarm, logged event, etc. */
-RTCCValue::RTCCValue(uint32_t date, uint32_t time) {
-	a_date = date;
-	a_time = time;
+/*
+ Validity is useful to track the source of current date/time reference...
+ */
+char RTCCClass::getValidity() {
+  return _validity;
 }
 
+void RTCCClass::setValidity(char val) {
+  _validity = val;
+}
+
+
+
+/* Default constructor */
+RTCCValue::RTCCValue() {
+	a_date = 0;
+	a_time = 0;
+	_validity = 0;
+}
+
+/* Handling a date/time : current RTC, Alarm, logged event, etc. */
+RTCCValue::RTCCValue(uint32_t date, uint32_t time, uint8_t val) {
+	a_date = date;
+	a_time = time;
+	_validity = val;
+}
+
+RTCCValue::RTCCValue(const RTCCValue * rv) {
+	a_date = rv->a_date;
+	a_time = rv->a_time;
+	_validity = rv->_validity;
+}
+
+/*
+ Validity is useful to track the source of current date/time reference...
+ */
+char RTCCValue::getValidity() {
+  return _validity;
+}
+
+void RTCCValue::setValidity(char val) {
+  _validity = val;
+}
+/*
+ Internally RTC is working in good old BCD!
+ */
 unsigned char RTCCValue::dec2bcd(unsigned char decimal)
 {
     unsigned char bcd;
@@ -359,4 +429,109 @@ bool RTCCValue::valid()
    char asec   = seconds();
    return (ayear >= 0 && ayear <= 99 && amonth >= 1 && amonth <= 12 && aday >= 1 && aday <= 31
            && ahour >= 0 && ahour <= 23 && amin >= 0 && amin <= 59 && asec >= 0 && asec <= 59 );
+}
+
+/*
+  get an UNSIGNED integer representing date/time in 32 bits (NOT Unix date/time representation)
+ */
+void RTCCValue::setInt(uint32_t timeAsInt) {
+   char asec   = timeAsInt % 60;
+   timeAsInt = timeAsInt / 60;
+   char amin   = timeAsInt % 60;
+   timeAsInt = timeAsInt / 60;
+   char ahour   = timeAsInt % 24;
+   timeAsInt = timeAsInt / 24;
+   char aday   = (timeAsInt % 31) + 1;
+   timeAsInt = timeAsInt / 31;
+   char amonth   = (timeAsInt % 12) + 1;
+   char ayear = timeAsInt / 12;
+   date (ayear,amonth,aday);
+   time (ahour, amin,asec);
+}
+
+/*
+  Set a date/time using an UNSIGNED integer in 32 bits (NOT Unix date/time representation)
+ */
+uint32_t RTCCValue::getInt() {
+   char ayear  = year();
+   char amonth = month();
+   char aday   = day();
+   char ahour  = hours();
+   char amin   = minutes();
+   char asec   = seconds();
+   if (ayear >= 0 && ayear <= 99 && amonth >= 1 && amonth <= 12 && aday >= 1 && aday <= 31
+       && ahour >= 0 && ahour <= 23 && amin >= 0 && amin <= 59 && asec >= 0 && asec <= 59 ) {
+	return (uint32_t)asec+((uint32_t)amin*60)+((uint32_t)ahour*3600)+(((uint32_t)aday-1)*3600*24)+(((uint32_t)amonth-1)*3600*24*31)+((uint32_t)ayear*3600*24*31*12);
+   } else return 0;
+}
+
+// Days per month...
+unsigned char calendar [] = {31, 28, 31, 30,
+							31, 30, 31, 31,
+							30, 31, 30, 31};
+
+/*
+ Still UNTESTED: create Unix like long representing the date/time
+ */							
+unsigned long RTCCValue::getTimestamp()
+{
+
+#define YEAR0 1970
+// Belgium but timestamps will be inconsistent: better to store in pseudo UTC!
+//#define TIMEZONE 1
+// Belgium applies DST BUT timestamps will be inconsistent: better to store in pseudo UTC!
+//#define DAYLIGHTSAVING
+   int ayear  = 2000+year();
+   char amonth = month();
+   char aday   = day();
+   char ahour  = hours();
+   char amin   = minutes();
+   char asec   = seconds();
+#ifdef DAYLIGHTSAVING
+   bool dst = amonth >= 3 & amonth <= 10;
+   if (dst) {
+		if (amonth == 3) {
+// (31 - ((((5 × y) div 4) + 4) mod 7)) March at 01:00 UTC
+			char dday = (char)(31 - (((int)((5 * (int)ayear) / 4) + 4) % 7));
+			if (aday < dday) dst = false;
+			else if (aday == dday & ahour < 1) dst = false;
+		} else if (amonth == 10) {
+// (31 - ((((5 × y) div 4) + 1) mod 7)) October at 01:00 UTC		
+			char dday = (31 - (((int)((5 * (int)ayear) / 4) + 1) % 7));
+			if (aday > dday) dst = false;
+			else if (aday == dday & ahour >= 1) dst = false;
+		}
+   }
+#endif
+   if (ayear >= 0 && ayear <= 99 && amonth >= 1 && amonth <= 12 && aday >= 1 && aday <= 31
+       && ahour >= 0 && ahour <= 23 && amin >= 0 && amin <= 59 && asec >= 0 && asec <= 59 ) {
+		unsigned long s=0; // stores how many seconds passed from 1.1.1970, 00:00:00
+		unsigned char localposition=0,foundlocal=0; // checks if the local area is defined in the map
+		static unsigned char k=0;
+		if ((!(ayear%4)) && (amonth>2)) s+=86400; // if the current year is a leap one -> add one day (86400 sec)
+		amonth-- ; // dec the current month (find how many months have passed from the current year)
+		while (amonth) // sum the days from January to the current month
+		{
+			amonth-- ; // dec the month
+			s+=(calendar[amonth])*86400 ; // add the number of days from a month * 86400 sec
+		}
+		// Next, add to s variable: (the number of days from each year (even leap years)) * 86400 sec,
+		// the number of days from the current month
+		// the each hour & minute & second from the current day
+		s +=((((ayear-YEAR0)*365)+((ayear-YEAR0)/4))*(unsigned long)86400)+(aday-1)*(unsigned long)86400 +
+			(ahour*(unsigned long)3600)+(amin*(unsigned long)60)+(unsigned long)asec;
+#ifdef DAYLIGHTSAVING
+		if (dst) s-=3600;// if Summer Time, substract 1 hour
+#endif
+#ifdef TIMEZONE
+		s-=(TIMEZONE*3600) ; // substract the UTC time difference (in seconds:3600 sec/hour)
+#endif
+		return s ; // return a Unix timestamp
+   } else {
+		return 0;
+   }
+}
+
+// NOT IMPLEMENTED BUT WOULD BE NICE !
+void RTCCValue::setTimestamp(unsigned long unixTime) {
 }
