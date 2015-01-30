@@ -1,0 +1,8 @@
+Documentation/oldManual.pdf libraries/Time/chipkit/RTCC/Documentation
+Documentation/Manual.pdf libraries/Time/chipkit/RTCC/Documentation
+LICENSE usr/share/doc/librtcc-chipkit/
+README.md usr/share/doc/librtcc-chipkit/
+RTCC.cpp libraries/Time/chipkit/RTCC/
+RTCC.h libraries/Time/chipkit/RTCC/
+examples/RTCCDemo/RTCCDemo.pde libraries/Time/chipkit/RTCC/examples/RTCCDemo
+keywords.txt libraries/Time/chipkit/RTCC/
