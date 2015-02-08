@@ -9,6 +9,7 @@ Standards-Version: 3.9.4
 
 Package: librtcc-chipkit
 Architecture: all
+Provides: RTCC.h
 Depends: chipkit
 Description: RTCC library for chipkit
 
