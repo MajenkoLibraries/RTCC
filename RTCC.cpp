@@ -22,18 +22,13 @@ RTCCClass RTCC; // Object to access the RTC of the MCU...
   Interrupt routine called if Alarm/Chime/RTC interrupt is enabled.
   Calls an user configured procedure.
 */
-extern "C"
-{
-    void (*_RTCCInterrupt)();
+void (*_RTCCInterrupt)();
 
-    void __ISR(_RTCC_VECTOR, ipl3/*_RTCC_IPL_ISR does not work*/) __RTCCInterrupt(void) 
-    {
-        if(_RTCCInterrupt)
-        {
-            _RTCCInterrupt();
-        }
-        IFS1CLR=0x00008000;
+void __USER_ISR __RTCCInterrupt(void) {
+    if(_RTCCInterrupt) {
+        _RTCCInterrupt();
     }
+    clearIntFlag(_RTCC_IRQ);
 }
 
 /*
@@ -44,11 +39,11 @@ extern "C"
 
 void RTCCClass::begin() 
 {
-    IEC1CLR=0x00008000;
-    IFS1CLR=0x00008000; 
-    IPC8CLR=0x1f000000; 
-    IPC8SET=0x0d000000; 
-    IEC1SET=0x00008000; 
+    setIntVector(_RTCC_VECTOR, __RTCCInterrupt);
+    setIntPriority(_RTCC_VECTOR, 3, 0);
+    clearIntFlag(_RTCC_IRQ);
+    setIntEnable(_RTCC_IRQ);
+
 /*Ensure the secondary oscillator is enabled and ready, i.e. OSCCON<1>=1, OSCCON<22>=1,
 and RTCC write is enabled i.e. RTCWREN (RTCCON<3>) =1;*/
     UNLOCK
@@ -100,6 +95,10 @@ void RTCCClass::outputDisable()
     RTCCONbits.RTCOE = 0;
     LOCK
 } 
+
+void RTCCClass::calibrate(int cal) {
+    RTCCONbits.CAL = cal;
+}
 
 /*
  get Current date/time.

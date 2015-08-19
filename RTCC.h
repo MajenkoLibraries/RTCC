@@ -164,6 +164,8 @@ class RTCCClass {
 		void outputEnable(unsigned char);
 		void outputDisable();
 
+        void calibrate(int cal);
+
 		RTCCValue alarmValue();
 		void alarmEnable();
 		void alarmDisable();
