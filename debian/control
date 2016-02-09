@@ -2,6 +2,7 @@ Source: librtcc-chipkit
 Section: libraries
 Priority: extra
 XBSC-Group: Time
+XBSC-Subgroup: RTC
 XBSC-Family: pic32
 Maintainer: Matt Jenkins <matt@majenko.co.uk>
 Build-Depends: debhelper (>= 8.0.0)
