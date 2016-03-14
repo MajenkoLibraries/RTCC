@@ -13,7 +13,6 @@ PIC32 version...
 
 #include <WProgram.h>
 #include <sys/attribs.h>
-#include <peripheral/int.h>
 #include "RTCC.h"
 
 RTCCClass RTCC; // Object to access the RTC of the MCU...
