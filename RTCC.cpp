@@ -468,68 +468,102 @@ unsigned char calendar [] = {31, 28, 31, 30,
 							31, 30, 31, 31,
 							30, 31, 30, 31};
 
+
+#define SECS_PER_MIN  ((time_t)(60UL))
+#define SECS_PER_HOUR ((time_t)(3600UL))
+#define SECS_PER_DAY  ((time_t)(SECS_PER_HOUR * 24UL))
+#define DAYS_PER_WEEK ((time_t)(7UL))
+#define SECS_PER_WEEK ((time_t)(SECS_PER_DAY * DAYS_PER_WEEK))
+#define SECS_PER_YEAR ((time_t)(SECS_PER_WEEK * 52UL))
+#define SECS_YR_2000  ((time_t)(946684800UL)) // the time at the start of y2k
+
+#define LEAP_YEAR(Y)     ( ((1970+Y)>0) && !((1970+Y)%4) && ( ((1970+Y)%100) || !((1970+Y)%400) ) )
+static  const uint8_t monthDays[]={31,28,31,30,31,30,31,31,30,31,30,31}; // API starts months from 1, this array starts from 0
+
 /*
  Still UNTESTED: create Unix like long representing the date/time
  */							
-unsigned long RTCCValue::getTimestamp()
+uint32_t RTCCValue::getTimestamp()
 {
+  int i;
+  uint32_t tseconds;
 
-#define YEAR0 1970
-// Belgium but timestamps will be inconsistent: better to store in pseudo UTC!
-//#define TIMEZONE 1
-// Belgium applies DST BUT timestamps will be inconsistent: better to store in pseudo UTC!
-//#define DAYLIGHTSAVING
-   int ayear  = 2000+year();
-   char amonth = month();
-   char aday   = day();
-   char ahour  = hours();
-   char amin   = minutes();
-   char asec   = seconds();
-#ifdef DAYLIGHTSAVING
-   bool dst = amonth >= 3 & amonth <= 10;
-   if (dst) {
-		if (amonth == 3) {
-// (31 - ((((5 × y) div 4) + 4) mod 7)) March at 01:00 UTC
-			char dday = (char)(31 - (((int)((5 * (int)ayear) / 4) + 4) % 7));
-			if (aday < dday) dst = false;
-			else if (aday == dday & ahour < 1) dst = false;
-		} else if (amonth == 10) {
-// (31 - ((((5 × y) div 4) + 1) mod 7)) October at 01:00 UTC		
-			char dday = (31 - (((int)((5 * (int)ayear) / 4) + 1) % 7));
-			if (aday > dday) dst = false;
-			else if (aday == dday & ahour >= 1) dst = false;
-		}
-   }
-#endif
-   if (ayear >= 0 && ayear <= 99 && amonth >= 1 && amonth <= 12 && aday >= 1 && aday <= 31
-       && ahour >= 0 && ahour <= 23 && amin >= 0 && amin <= 59 && asec >= 0 && asec <= 59 ) {
-		unsigned long s=0; // stores how many seconds passed from 1.1.1970, 00:00:00
-		unsigned char localposition=0,foundlocal=0; // checks if the local area is defined in the map
-		static unsigned char k=0;
-		if ((!(ayear%4)) && (amonth>2)) s+=86400; // if the current year is a leap one -> add one day (86400 sec)
-		amonth-- ; // dec the current month (find how many months have passed from the current year)
-		while (amonth) // sum the days from January to the current month
-		{
-			amonth-- ; // dec the month
-			s+=(calendar[amonth])*86400 ; // add the number of days from a month * 86400 sec
-		}
-		// Next, add to s variable: (the number of days from each year (even leap years)) * 86400 sec,
-		// the number of days from the current month
-		// the each hour & minute & second from the current day
-		s +=((((ayear-YEAR0)*365)+((ayear-YEAR0)/4))*(unsigned long)86400)+(aday-1)*(unsigned long)86400 +
-			(ahour*(unsigned long)3600)+(amin*(unsigned long)60)+(unsigned long)asec;
-#ifdef DAYLIGHTSAVING
-		if (dst) s-=3600;// if Summer Time, substract 1 hour
-#endif
-#ifdef TIMEZONE
-		s-=(TIMEZONE*3600) ; // substract the UTC time difference (in seconds:3600 sec/hour)
-#endif
-		return s ; // return a Unix timestamp
-   } else {
-		return 0;
-   }
+    uint32_t yr = year() + 2000 - 1970;
+
+  // seconds from 1970 till 1 jan 00:00:00 of the given year
+  tseconds= yr*(SECS_PER_DAY * 365);
+  for (i = 0; i < yr; i++) {
+    if (LEAP_YEAR(i)) {
+      tseconds +=  SECS_PER_DAY;   // add extra days for leap years
+    }
+  }
+
+  // add days for this year, months start from 1
+  for (i = 1; i < month(); i++) {
+    if ( (i == 2) && LEAP_YEAR(yr)) {
+      tseconds += SECS_PER_DAY * 29;
+    } else {
+      tseconds += SECS_PER_DAY * monthDays[i-1];  //monthDay array starts from 0
+    }
+  }
+  tseconds+= (day()-1) * SECS_PER_DAY;
+  tseconds+= hours() * SECS_PER_HOUR;
+  tseconds+= minutes() * SECS_PER_MIN;
+  tseconds+= seconds();
+  return tseconds;
 }
 
 // NOT IMPLEMENTED BUT WOULD BE NICE !
-void RTCCValue::setTimestamp(unsigned long unixTime) {
+void RTCCValue::setTimestamp(uint32_t unixTime) {
+// break the given time_t into time components
+// this is a more compact version of the C library localtime function
+// note that year is offset from 1970 !!!
+
+  uint8_t _year;
+  uint8_t _month, _monthLength;
+  uint32_t _time;
+  unsigned long _days;
+
+  _time = (uint32_t)unixTime;
+  seconds(_time % 60);
+  _time /= 60; // now it is minutes
+  minutes(_time % 60);
+  _time /= 60; // now it is hours
+  hours(_time % 24);
+  _time /= 24; // now it is days
+  dayOfWeek(((_time + 4) % 7) + 1);  // Sunday is day 1
+
+  _year = 0;
+  _days = 0;
+  while((unsigned)(_days += (LEAP_YEAR(_year) ? 366 : 365)) <= _time) {
+    _year++;
+  }
+  year((1970 + _year) % 100); // year is offset from 1970
+
+  _days -= LEAP_YEAR(_year) ? 366 : 365;
+  _time  -= _days; // now it is days in this year, starting at 0
+
+  _days=0;
+  _month=0;
+  _monthLength=0;
+  for (_month=0; _month<12; _month++) {
+    if (_month==1) { // february
+      if (LEAP_YEAR(_year)) {
+        _monthLength=29;
+      } else {
+        _monthLength=28;
+      }
+    } else {
+      _monthLength = monthDays[_month];
+    }
+
+    if (_time >= _monthLength) {
+      _time -= _monthLength;
+    } else {
+        break;
+    }
+  }
+  month(_month + 1);  // jan is month 1
+  day(_time + 1);     // day of month
+
 }

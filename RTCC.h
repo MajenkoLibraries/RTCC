@@ -145,10 +145,10 @@ public class RTCvalue extends Date {
 */
 
 	    // Still UNTESTED: create Unix like long representing the date/time
-		unsigned long getTimestamp();
+		uint32_t getTimestamp();
 		
 		// NOT IMPLEMENTED BUT WOULD BE NICE !
-		void setTimestamp(unsigned long unixTime);
+		void setTimestamp(uint32_t unixTime);
 };
 
 class RTCCClass {
