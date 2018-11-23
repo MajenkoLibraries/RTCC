@@ -1,0 +1,19 @@
+{
+    "name": "RTCC",
+    "provides": "RTCC.h",
+    "license": "LICENSE.md",
+    "readme": "README.md",
+    "description": "chipKIT RealTime Clock & Calendar",
+    "category": "Time",
+    "subcategory": "RTC",
+    "maintainer": "Matt Jenkins <matt@majenko.co.uk>",
+    "version": "1.1.1",
+    "family": "pic32",
+    "core": "chipkit",
+    "install": {
+        "examples": "/",
+        "keywords.txt": "/",
+        "RTCC.cpp": "/",
+        "RTCC.h": "/"
+    }
+}
